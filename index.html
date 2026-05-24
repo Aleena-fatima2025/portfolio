@@ -1,158 +1,233 @@
-const container = document.getElementById('webgl-container');
-const scene = new THREE.Scene();
-
-// Deep, dark trench blue
-scene.fog = new THREE.FogExp2('#040a18', 0.0012);
-
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1500);
-camera.position.z = 400;
-camera.position.y = 150; // Angled slightly down to see the swells
-camera.position.x = 0;
-
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-container.appendChild(renderer.domElement);
-
-// Create a glowing circular texture dynamically (No external images needed)
-const canvas = document.createElement('canvas');
-canvas.width = 32; canvas.height = 32;
-const context = canvas.getContext('2d');
-const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
-gradient.addColorStop(0, 'rgba(255,255,255,1)');
-gradient.addColorStop(1, 'rgba(255,255,255,0)');
-context.fillStyle = gradient;
-context.fillRect(0, 0, 32, 32);
-const glowingTexture = new THREE.CanvasTexture(canvas);
-
-const particleCount = 25000; // High density for water
-const geometry = new THREE.BufferGeometry();
-const positions = new Float32Array(particleCount * 3);
-const originalPositions = new Float32Array(particleCount * 3);
-const colors = new Float32Array(particleCount * 3);
-
-// Bioluminescent Ocean Palette
-const palette = [
-    new THREE.Color('#00f2fe'), // Bright Cyan
-    new THREE.Color('#4facfe'), // Deep Sky Blue
-    new THREE.Color('#00e1ce'), // Teal
-    new THREE.Color('#055b8c')  // Dark Marine
-];
-
-// Create a massive, dense grid to act as our ocean surface
-let i = 0;
-for (let x = -1500; x < 1500; x += 15) {
-    for (let z = -1000; z < 1000; z += 15) {
-        if (i >= particleCount) break;
-
-        // Slight randomness so it doesn't look like a rigid chessboard
-        const offsetX = x + (Math.random() - 0.5) * 10;
-        const offsetZ = z + (Math.random() - 0.5) * 10;
-        const y = 0;
-
-        positions[i * 3] = offsetX;
-        positions[i * 3 + 1] = y;
-        positions[i * 3 + 2] = offsetZ;
-
-        originalPositions[i * 3] = offsetX;
-        originalPositions[i * 3 + 1] = y;
-        originalPositions[i * 3 + 2] = offsetZ;
-
-        const color = palette[Math.floor(Math.random() * palette.length)];
-        colors[i * 3] = color.r;
-        colors[i * 3 + 1] = color.g;
-        colors[i * 3 + 2] = color.b;
-
-        i++;
-    }
-}
-
-geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-const material = new THREE.PointsMaterial({
-    size: 4,
-    vertexColors: true,
-    map: glowingTexture,
-    transparent: true,
-    opacity: 0.6,
-    blending: THREE.AdditiveBlending, // Makes overlapping particles glow intensely
-    depthWrite: false
-});
-
-const particles = new THREE.Points(geometry, material);
-// Tilt the plane slightly to enhance depth
-particles.rotation.x = -Math.PI / 12; 
-scene.add(particles);
-
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-let mouse3D = new THREE.Vector3(0, 0, 0);
-
-window.addEventListener('mousemove', (event) => {
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-    
-    raycaster.setFromCamera(mouse, camera);
-    raycaster.ray.at(450, mouse3D); 
-});
-
-let clock = new THREE.Clock();
-
-function animate() {
-    requestAnimationFrame(animate);
-    
-    const time = clock.getElapsedTime();
-    const positions = particles.geometry.attributes.position.array;
-
-    for (let i = 0; i < particleCount; i++) {
-        const i3 = i * 3;
-        const ox = originalPositions[i3];
-        const oz = originalPositions[i3 + 2];
-
-        // Complex fluid mechanics: overlapping multi-directional sine swells
-        const swell1 = Math.sin(ox * 0.003 + time * 1.2) * 20;
-        const swell2 = Math.cos(oz * 0.004 + time * 0.8) * 25;
-        const microRipple = Math.sin((ox + oz) * 0.01 + time * 2) * 5;
-        
-        const targetY = swell1 + swell2 + microRipple;
-
-        const dx = positions[i3] - mouse3D.x;
-        const dz = positions[i3 + 2] - mouse3D.z;
-        // Ignore Y for mouse distance so the wake cuts cleanly through the swells
-        const distSq = dx * dx + dz * dz; 
-
-        // Like a drone parting the water
-        const interactionRadius = 15000; 
-
-        if (distSq < interactionRadius) {
-            const force = Math.pow((interactionRadius - distSq) / interactionRadius, 2);
-            // Push water outward
-            positions[i3] += dx * force * 0.08;
-            // Push water downward to create a wake channel
-            positions[i3 + 1] -= force * 1.5; 
-            positions[i3 + 2] += dz * force * 0.08;
-        } else {
-            // Fluidly return to the rolling swell pattern
-            positions[i3] += (ox - positions[i3]) * 0.03;
-            positions[i3 + 1] += (targetY - positions[i3 + 1]) * 0.05;
-            positions[i3 + 2] += (oz - positions[i3 + 2]) * 0.03;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autonomous Systems | Portfolio</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html {
+            width: 100%; height: 100%; overflow: hidden;
+            /* Deep trench blue */
+            background-color: #040a18; color: #f8fafc;
+            font-family: 'Inter', -apple-system, sans-serif;
         }
-    }
+        
+        #webgl-container {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%; z-index: 1;
+        }
 
-    particles.geometry.attributes.position.needsUpdate = true;
-    
-    // Extremely slow camera pan to emphasize the vastness
-    camera.position.x = Math.sin(time * 0.1) * 50;
-    camera.lookAt(scene.position);
+        .hud {
+            position: absolute; z-index: 2;
+            top: 50%; left: 10%;
+            transform: translateY(-50%);
+            pointer-events: none;
+        }
 
-    renderer.render(scene, camera);
-}
+        .mono-tag {
+            font-family: 'Fira Code', monospace;
+            color: #00f2fe; /* Cyan accent */
+            font-size: 0.85rem; letter-spacing: 2px;
+            text-transform: uppercase; margin-bottom: 1rem;
+            display: block;
+        }
 
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-});
+        h1 {
+            font-size: 4.5rem; font-weight: 800;
+            line-height: 1.1; margin-bottom: 1.5rem;
+            letter-spacing: -2px;
+        }
 
-animate();
+        .bio {
+            max-width: 500px; font-size: 1.1rem;
+            color: #94a3b8; line-height: 1.6;
+            margin-bottom: 2rem;
+        }
+
+        .tech-stack {
+            display: flex; gap: 1rem;
+            font-family: 'Fira Code', monospace; font-size: 0.9rem;
+        }
+        
+        .tech-stack span {
+            padding: 0.5rem 1rem;
+            border: 1px solid rgba(0, 242, 254, 0.2);
+            border-radius: 4px;
+            background: rgba(4, 10, 24, 0.5);
+            backdrop-filter: blur(4px);
+            color: #e2e8f0;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="hud">
+        <span class="mono-tag">MARINE.KINEMATICS // ACTIVE</span>
+        <h1>Control<br>Intelligence.</h1>
+        <p class="bio">
+            Architecting AI-driven control systems and autonomous infrastructure. Currently scaling Industry 4.0 integration for marine environments and biomechanical analysis.
+        </p>
+        <div class="tech-stack">
+            <span>YOLOv8</span>
+            <span>OpenCV</span>
+            <span>Sensor Fusion</span>
+            <span>C++</span>
+        </div>
+    </div>
+
+    <div id="webgl-container"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const container = document.getElementById('webgl-container');
+        const scene = new THREE.Scene();
+
+        // Deep, dark trench blue fog
+        scene.fog = new THREE.FogExp2('#040a18', 0.0012);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1500);
+        camera.position.z = 400;
+        camera.position.y = 150; // Angled slightly down to see the swells
+        camera.position.x = 0;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(renderer.domElement);
+
+        // Create a glowing circular texture dynamically
+        const canvas = document.createElement('canvas');
+        canvas.width = 32; canvas.height = 32;
+        const context = canvas.getContext('2d');
+        const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
+        gradient.addColorStop(0, 'rgba(255,255,255,1)');
+        gradient.addColorStop(1, 'rgba(255,255,255,0)');
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, 32, 32);
+        const glowingTexture = new THREE.CanvasTexture(canvas);
+
+        const particleCount = 25000; 
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const originalPositions = new Float32Array(particleCount * 3);
+        const colors = new Float32Array(particleCount * 3);
+
+        // Bioluminescent Ocean Palette
+        const palette = [
+            new THREE.Color('#00f2fe'), // Bright Cyan
+            new THREE.Color('#4facfe'), // Deep Sky Blue
+            new THREE.Color('#00e1ce'), // Teal
+            new THREE.Color('#055b8c')  // Dark Marine
+        ];
+
+        let i = 0;
+        for (let x = -1500; x < 1500; x += 15) {
+            for (let z = -1000; z < 1000; z += 15) {
+                if (i >= particleCount) break;
+
+                const offsetX = x + (Math.random() - 0.5) * 10;
+                const offsetZ = z + (Math.random() - 0.5) * 10;
+                const y = 0;
+
+                positions[i * 3] = offsetX;
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = offsetZ;
+
+                originalPositions[i * 3] = offsetX;
+                originalPositions[i * 3 + 1] = y;
+                originalPositions[i * 3 + 2] = offsetZ;
+
+                const color = palette[Math.floor(Math.random() * palette.length)];
+                colors[i * 3] = color.r;
+                colors[i * 3 + 1] = color.g;
+                colors[i * 3 + 2] = color.b;
+
+                i++;
+            }
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const material = new THREE.PointsMaterial({
+            size: 4,
+            vertexColors: true,
+            map: glowingTexture,
+            transparent: true,
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending, // Makes overlapping particles glow
+            depthWrite: false
+        });
+
+        const particles = new THREE.Points(geometry, material);
+        particles.rotation.x = -Math.PI / 12; 
+        scene.add(particles);
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let mouse3D = new THREE.Vector3(0, 0, 0);
+
+        window.addEventListener('mousemove', (event) => {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            raycaster.ray.at(450, mouse3D); 
+        });
+
+        let clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const time = clock.getElapsedTime();
+            const positions = particles.geometry.attributes.position.array;
+
+            for (let i = 0; i < particleCount; i++) {
+                const i3 = i * 3;
+                const ox = originalPositions[i3];
+                const oz = originalPositions[i3 + 2];
+
+                const swell1 = Math.sin(ox * 0.003 + time * 1.2) * 20;
+                const swell2 = Math.cos(oz * 0.004 + time * 0.8) * 25;
+                const microRipple = Math.sin((ox + oz) * 0.01 + time * 2) * 5;
+                
+                const targetY = swell1 + swell2 + microRipple;
+
+                const dx = positions[i3] - mouse3D.x;
+                const dz = positions[i3 + 2] - mouse3D.z;
+                const distSq = dx * dx + dz * dz; 
+
+                const interactionRadius = 15000; 
+
+                if (distSq < interactionRadius) {
+                    const force = Math.pow((interactionRadius - distSq) / interactionRadius, 2);
+                    positions[i3] += dx * force * 0.08;
+                    positions[i3 + 1] -= force * 1.5; 
+                    positions[i3 + 2] += dz * force * 0.08;
+                } else {
+                    positions[i3] += (ox - positions[i3]) * 0.03;
+                    positions[i3 + 1] += (targetY - positions[i3 + 1]) * 0.05;
+                    positions[i3 + 2] += (oz - positions[i3 + 2]) * 0.03;
+                }
+            }
+
+            particles.geometry.attributes.position.needsUpdate = true;
+            
+            camera.position.x = Math.sin(time * 0.1) * 50;
+            camera.lookAt(scene.position);
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
